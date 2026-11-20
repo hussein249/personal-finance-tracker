@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Finance Tracker{% endblock %}
+{% block content %}
+  <h1 class="text-3xl font-semibold mb-2">Dashboard</h1>
+  <p class="text-slate-400 mb-6">Track income and expenses, filter, and visualize trends.</p>
+
+  <!-- Summary cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <p class="text-slate-400 text-sm">Income</p>
+      <p class="text-2xl font-semibold text-emerald-400">${{ '%.2f'|format(total_income) }}</p>
+    </div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <p class="text-slate-400 text-sm">Expenses</p>
+      <p class="text-2xl font-semibold text-rose-400">${{ '%.2f'|format(total_expense) }}</p>
+    </div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <p class="text-slate-400 text-sm">Balance</p>
+      <p class="text-2xl font-semibold {% if balance < 0 %}text-rose-400{% else %}text-sky-300{% endif %}">
+        ${{ '%.2f'|format(balance) }}
+      </p>
+    </div>
+  </div>
+
+  {% if budget_status %}
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4 mb-6">
+    <h2 class="text-lg font-semibold mb-3">Budget Status (this month)</h2>
+    <div class="space-y-2">
+      {% for b in budget_status %}
+      <div>
+        <div class="flex justify-between text-sm mb-1">
+          <span>{{ b.category }}</span>
+          <span class="{% if b.over %}text-rose-400{% else %}text-slate-300{% endif %}">
+            ${{ '%.2f'|format(b.spent) }} / ${{ '%.2f'|format(b.limit) }}
+            {% if b.over %} — over budget{% endif %}
+          </span>
+        </div>
+        <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+          <div class="h-2 {% if b.over %}bg-rose-500{% else %}bg-brand{% endif %}" style="width: {{ b.pct }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <a href="{{ url_for('budgets') }}" class="text-xs text-slate-400 hover:text-brand underline mt-3 inline-block">Manage budgets</a>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Filters -->
+    <section class="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h2 class="text-lg font-semibold mb-3">Filters</h2>
+      <form method="get" action="{{ url_for('index') }}" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <label class="text-sm">
+          <span class="block mb-1 text-slate-300">Start</span>
+          <input name="start" value="{{ start_str }}" type="date"
+                 class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100" />
+        </label>
+        <label class="text-sm">
+          <span class="block mb-1 text-slate-300">End</span>
+          <input name="end" value="{{ end_str }}" type="date"
+                 class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100" />
+        </label>
+        <label class="text-sm">
+          <span class="block mb-1 text-slate-300">Type</span>
+          <select name="type" class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100">
+            <option value="">All</option>
+            <option value="income" {% if selected_type == 'income' %}selected{% endif %}>Income</option>
+            <option value="expense" {% if selected_type == 'expense' %}selected{% endif %}>Expense</option>
+          </select>
+        </label>
+        <label class="text-sm md:col-span-1">
+          <span class="block mb-1 text-slate-300">Category</span>
+          <select name="category" class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100">
+            <option value="">All</option>
+            {% for c in (expense_categories + income_categories) | unique %}
+              <option value="{{ c }}" {% if selected_category == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="flex gap-2">
+          <button type="submit"
+            class="rounded-xl bg-brand/20 hover:bg-brand/30 text-brand px-4 py-2 border border-brand/30">Apply</button>
+          <a href="{{ url_for('index') }}"
+             class="rounded-xl bg-slate-800 hover:bg-slate-700 px-4 py-2 border border-slate-700">Reset</a>
+        </div>
+      </form>
+      <div class="mt-3">
+        <a class="text-xs text-slate-400 hover:text-brand underline"
+           href="{{ url_for('export_csv', start=start_str, end=end_str, category=selected_category, type=selected_type) }}">
+          Export CSV (current filter)
+        </a>
+      </div>
+    </section>
+
+    <!-- Add transaction -->
+    <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h2 class="text-lg font-semibold mb-3">Add Transaction</h2>
+      <form method="post" action="{{ url_for('add') }}" class="space-y-3" id="addForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <label class="flex items-center gap-2">
+            <input type="radio" name="type" value="expense" checked onchange="updateCategoryOptions()"> Expense
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="radio" name="type" value="income" onchange="updateCategoryOptions()"> Income
+          </label>
+        </div>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-300">Description</span>
+          <input name="description" placeholder="e.g., Groceries" required
+                 class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100" />
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-300">Amount</span>
+            <input name="amount" type="number" step="0.01" min="0.01" placeholder="25.00" required
+                   class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-300">Date</span>
+            <input name="date" value="{{ today }}" type="date"
+                   class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100" />
+          </label>
+        </div>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-300">Category</span>
+          <select name="category" id="categorySelect"
+                  class="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100">
+            {% for c in expense_categories %}
+              <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit"
+          class="w-full rounded-xl bg-brand/20 hover:bg-brand/30 text-brand px-4 py-2 border border-brand/30">
+          Add Transaction
+        </button>
+      </form>
+    </section>
+  </div>
+
+  <!-- Transactions table -->
+  <section class="rounded-2xl border border-slate-800 bg-slate-900 mt-6">
+    <div class="px-4 py-3 border-b border-slate-800">
+      <h2 class="text-lg font-semibold">Transactions</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="text-slate-300 bg-slate-800/50">
+          <tr>
+            <th class="text-left px-4 py-3">Date</th>
+            <th class="text-left px-4 py-3">Description</th>
+            <th class="text-left px-4 py-3">Category</th>
+            <th class="text-left px-4 py-3">Type</th>
+            <th class="text-right px-4 py-3">Amount</th>
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in transactions %}
+          <tr class="border-t border-slate-800 hover:bg-slate-800/30">
+            <td class="px-4 py-2">{{ t.date.strftime("%Y-%m-%d") if t.date else '' }}</td>
+            <td class="px-4 py-2">{{ t.description }}</td>
+            <td class="px-4 py-2">{{ t.category }}</td>
+            <td class="px-4 py-2">
+              <span class="{% if t.type == 'income' %}text-emerald-400{% else %}text-rose-400{% endif %}">
+                {{ t.type }}
+              </span>
+            </td>
+            <td class="px-4 py-2 text-right">${{ '%.2f'|format(t.amount) }}</td>
+            <td class="px-4 py-2 text-right">
+              <div class="inline-flex gap-2">
+                <a class="text-sky-300 hover:text-sky-200 text-xs border border-sky-400/30 px-3 py-1 rounded-lg"
+                   href="{{ url_for('edit', tx_id=t.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('delete', tx_id=t.id) }}"
+                      onsubmit="return confirm('Are you sure you want to delete?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="text-rose-300 hover:text-rose-200 text-xs border border-rose-400/30 px-3 py-1 rounded-lg">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="px-4 py-6 text-center text-slate-400">
+              No transactions yet — add your first one above.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h3 class="font-semibold mb-2">Expenses by Category</h3>
+      <canvas id="catChart" height="140"></canvas>
+    </div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h3 class="font-semibold mb-2">Income vs Expense (last 6 months)</h3>
+      <canvas id="trendChart" height="140"></canvas>
+    </div>
+  </section>
+
+  <script>
+    const expenseCats = {{ expense_categories | tojson }};
+    const incomeCats = {{ income_categories | tojson }};
+
+    function updateCategoryOptions() {
+      const type = document.querySelector('input[name="type"]:checked').value;
+      const select = document.getElementById('categorySelect');
+      const cats = type === 'income' ? incomeCats : expenseCats;
+      select.innerHTML = '';
+      cats.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        select.appendChild(opt);
+      });
+    }
+
+    const catLabels = {{ cat_labels | tojson }};
+    const catValues = {{ cat_values | tojson }};
+    const trendLabels = {{ trend_labels | tojson }};
+    const trendIncome = {{ trend_income | tojson }};
+    const trendExpense = {{ trend_expense | tojson }};
+
+    if (document.getElementById('catChart')) {
+      new Chart(document.getElementById('catChart').getContext('2d'), {
+        type: 'pie',
+        data: { labels: catLabels, datasets: [{ data: catValues }] },
+        options: { plugins: { legend: { labels: { color: '#cbd5e1' } } } }
+      });
+    }
+
+    if (document.getElementById('trendChart')) {
+      new Chart(document.getElementById('trendChart').getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: trendLabels,
+          datasets: [
+            { label: 'Income', data: trendIncome, backgroundColor: '#34d399' },
+            { label: 'Expense', data: trendExpense, backgroundColor: '#fb7185' }
+          ]
+        },
+        options: {
+          plugins: { legend: { labels: { color: '#cbd5e1' } } },
+          scales: {
+            x: { ticks: { color: '#cbd5e1' }, grid: { color: '#334155' } },
+            y: { ticks: { color: '#cbd5e1' }, grid: { color: '#334155' } }
+          }
+        }
+      });
+    }
+  </script>
+{% endblock %}
